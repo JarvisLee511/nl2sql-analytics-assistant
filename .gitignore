@@ -1,0 +1,13 @@
+# local dev / tooling
+.playwright-mcp/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+
+# regenerable: rebuild with `python data/generate_data.py` (24MB, not needed to deploy)
+data/warehouse.duckdb
+
+# never commit secrets
+.streamlit/secrets.toml
+.env

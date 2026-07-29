@@ -1,0 +1,168 @@
+[
+  {
+    "id": "customers-by-segment",
+    "en": "How many customers are in each segment?",
+    "zh": "各客戶分群各有多少家客戶?",
+    "category": "Overview",
+    "viz": "bar",
+    "sql": "SELECT segment, COUNT(*) AS customers\nFROM customer\nGROUP BY segment\nORDER BY customers DESC;",
+    "columns": [
+      "segment",
+      "customers"
+    ]
+  },
+  {
+    "id": "revenue-by-segment",
+    "en": "What is total revenue by customer segment?",
+    "zh": "各客戶分群的總營收是多少?",
+    "category": "Revenue",
+    "viz": "bar",
+    "sql": "SELECT c.segment,\n       ROUND(SUM(i.total_amount)) AS revenue,\n       COUNT(DISTINCT c.customer_id) AS customers\nFROM customer c\nJOIN purchase p ON p.customer_id = c.customer_id\nJOIN invoice  i ON i.purchase_id = p.purchase_id\nGROUP BY c.segment\nORDER BY revenue DESC;",
+    "columns": [
+      "segment",
+      "revenue",
+      "customers"
+    ]
+  },
+  {
+    "id": "revenue-by-industry",
+    "en": "Which industries generate the most revenue?",
+    "zh": "哪些產業帶來最多營收?",
+    "category": "Revenue",
+    "viz": "bar",
+    "sql": "SELECT c.industry,\n       ROUND(SUM(i.total_amount)) AS revenue\nFROM customer c\nJOIN purchase p ON p.customer_id = c.customer_id\nJOIN invoice  i ON i.purchase_id = p.purchase_id\nGROUP BY c.industry\nORDER BY revenue DESC;",
+    "columns": [
+      "industry",
+      "revenue"
+    ]
+  },
+  {
+    "id": "monthly-revenue",
+    "en": "Show the monthly revenue trend over the last 12 months.",
+    "zh": "顯示近 12 個月的每月營收趨勢。",
+    "category": "Revenue",
+    "viz": "line",
+    "sql": "SELECT date_trunc('month', i.invoice_date) AS month,\n       ROUND(SUM(i.total_amount)) AS revenue\nFROM invoice i\nWHERE i.invoice_date >= (SELECT max(invoice_date) FROM invoice) - INTERVAL 12 MONTH\nGROUP BY 1\nORDER BY 1;",
+    "columns": [
+      "month",
+      "revenue"
+    ]
+  },
+  {
+    "id": "top-customers-unpaid",
+    "en": "Top 5 customers by revenue — and what % is still unpaid?",
+    "zh": "營收前 5 大客戶,各有多少比例尚未付款?",
+    "category": "Finance",
+    "viz": "table",
+    "sql": "SELECT c.company_name,\n       c.segment,\n       ROUND(SUM(i.total_amount)) AS revenue,\n       ROUND(100.0 * SUM(CASE WHEN i.payment_status <> 'Paid'\n                              THEN i.total_amount ELSE 0 END)\n             / SUM(i.total_amount), 1) AS pct_unpaid\nFROM customer c\nJOIN purchase p ON p.customer_id = c.customer_id\nJOIN invoice  i ON i.purchase_id = p.purchase_id\nGROUP BY 1, 2\nORDER BY revenue DESC\nLIMIT 5;",
+    "columns": [
+      "company_name",
+      "segment",
+      "revenue",
+      "pct_unpaid"
+    ]
+  },
+  {
+    "id": "payment-speed",
+    "en": "What is the average time to pay by payment method?",
+    "zh": "各付款方式的平均付款天數是多少?",
+    "category": "Finance",
+    "viz": "bar",
+    "sql": "SELECT pm.payment_method,\n       ROUND(AVG(pm.payment_date - i.invoice_date), 1) AS avg_days_to_pay,\n       COUNT(*) AS payments\nFROM payment pm\nJOIN invoice i ON i.invoice_id = pm.invoice_id\nGROUP BY 1\nORDER BY avg_days_to_pay;",
+    "columns": [
+      "payment_method",
+      "avg_days_to_pay",
+      "payments"
+    ]
+  },
+  {
+    "id": "eu-overdue",
+    "en": "Which customers with EU-region accounts have overdue invoices?",
+    "zh": "哪些在歐洲區有帳號的客戶有逾期發票?",
+    "category": "Finance",
+    "viz": "table",
+    "sql": "SELECT c.company_name,\n       COUNT(*) AS overdue_invoices,\n       ROUND(SUM(i.total_amount)) AS overdue_amount\nFROM customer c\nJOIN purchase p ON p.customer_id = c.customer_id\nJOIN invoice  i ON i.purchase_id = p.purchase_id\n                AND i.payment_status = 'Overdue'\nWHERE c.customer_id IN (\n    SELECT ac.customer_id\n    FROM aws_account ac\n    JOIN account_region ar ON ar.account_id = ac.account_id\n    JOIN region r ON r.region_id = ar.region_id\n    WHERE r.continent = 'Europe'\n)\nGROUP BY 1\nORDER BY overdue_amount DESC\nLIMIT 10;",
+    "columns": [
+      "company_name",
+      "overdue_invoices",
+      "overdue_amount"
+    ]
+  },
+  {
+    "id": "usage-by-tier",
+    "en": "What is total AWS usage cost by service tier?",
+    "zh": "各服務層級的 AWS 使用成本總計是多少?",
+    "category": "Usage",
+    "viz": "bar",
+    "sql": "SELECT s.service_tier,\n       ROUND(SUM(u.cost)) AS usage_cost\nFROM usage_log u\nJOIN aws_service s ON s.service_id = u.service_id\nGROUP BY 1\nORDER BY usage_cost DESC;",
+    "columns": [
+      "service_tier",
+      "usage_cost"
+    ]
+  },
+  {
+    "id": "top-services",
+    "en": "Top 10 AWS services by total usage cost.",
+    "zh": "使用成本最高的前 10 項 AWS 服務。",
+    "category": "Usage",
+    "viz": "bar",
+    "sql": "SELECT s.service_name,\n       ROUND(SUM(u.cost)) AS usage_cost\nFROM usage_log u\nJOIN aws_service s ON s.service_id = u.service_id\nGROUP BY 1\nORDER BY usage_cost DESC\nLIMIT 10;",
+    "columns": [
+      "service_name",
+      "usage_cost"
+    ]
+  },
+  {
+    "id": "account-managers",
+    "en": "Which account managers handle the most customers, and how many open support tickets do those customers have?",
+    "zh": "哪些客戶經理負責最多客戶?這些客戶有幾張未結支援單?",
+    "category": "Operations",
+    "viz": "table",
+    "sql": "SELECT e.employee_name,\n       COUNT(DISTINCT a.customer_id) AS customers,\n       COUNT(DISTINCT t.ticket_id)   AS open_tickets\nFROM employee e\nJOIN account_manager_assignment a ON a.employee_id = e.employee_id\nLEFT JOIN support_ticket t ON t.customer_id = a.customer_id\n                          AND t.status = 'Open'\nWHERE e.department = 'Account Management'\nGROUP BY 1\nORDER BY customers DESC\nLIMIT 8;",
+    "columns": [
+      "employee_name",
+      "customers",
+      "open_tickets"
+    ]
+  },
+  {
+    "id": "ticket-resolution",
+    "en": "What is the average ticket resolution time by priority level?",
+    "zh": "各優先級的平均支援單處理天數是多少?",
+    "category": "Operations",
+    "viz": "bar",
+    "sql": "SELECT priority_level,\n       ROUND(AVG(resolved_date - created_date), 1) AS avg_days_to_resolve,\n       COUNT(*) AS resolved_tickets\nFROM support_ticket\nWHERE status = 'Resolved'\nGROUP BY 1\nORDER BY avg_days_to_resolve;",
+    "columns": [
+      "priority_level",
+      "avg_days_to_resolve",
+      "resolved_tickets"
+    ]
+  },
+  {
+    "id": "churned-revenue",
+    "en": "List churned customers and their lifetime revenue.",
+    "zh": "列出已流失的客戶及其終身營收。",
+    "category": "Customers",
+    "viz": "table",
+    "sql": "SELECT c.company_name,\n       c.signup_date,\n       ROUND(SUM(i.total_amount)) AS lifetime_revenue\nFROM customer c\nJOIN purchase p ON p.customer_id = c.customer_id\nJOIN invoice  i ON i.purchase_id = p.purchase_id\nWHERE c.status = 'Churned'\nGROUP BY 1, 2\nORDER BY lifetime_revenue DESC\nLIMIT 10;",
+    "columns": [
+      "company_name",
+      "signup_date",
+      "lifetime_revenue"
+    ]
+  },
+  {
+    "id": "contracts-expiring",
+    "en": "Which contracts are expiring in the next 6 months?",
+    "zh": "哪些合約將在未來 6 個月內到期?",
+    "category": "Operations",
+    "viz": "table",
+    "sql": "SELECT c.company_name,\n       ct.end_date,\n       ROUND(ct.committed_amount) AS committed_amount,\n       ct.discount_pct\nFROM contract ct\nJOIN customer c ON c.customer_id = ct.customer_id\nWHERE ct.end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 6 MONTH\nORDER BY ct.end_date\nLIMIT 15;",
+    "columns": [
+      "company_name",
+      "end_date",
+      "committed_amount",
+      "discount_pct"
+    ]
+  }
+]
