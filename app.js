@@ -57,6 +57,47 @@ function hideLoader() { loader.hidden = true; }
 let conn = null;
 let CURATED = [];
 
+// Fetch a parquet whole, check it really is one, and retry if it is not.
+//
+// This used to hand DuckDB a URL and let it pull byte ranges itself. That is the
+// right call for a warehouse you cannot fit in memory, but the whole database
+// here is 11 MB — so all the range fetching bought was a failure mode: one
+// dropped chunk, or a partial range response cached by a proxy, and DuckDB reads
+// arbitrary bytes where the footer should be and reports
+// "TProtocolException: Invalid data" — a Thrift parser error with no hint that
+// the real problem was the transfer. Fetching whole files means we can verify
+// them and retry, and the second attempt bypasses the cache in case that is what
+// is poisoned.
+const PAR1 = [0x50, 0x41, 0x52, 0x31];
+
+function looksLikeParquet(bytes) {
+  if (bytes.length < 8) return false;
+  const at = (o) => PAR1.every((b, i) => bytes[o + i] === b);
+  return at(0) && at(bytes.length - 4);   // parquet starts and ends with PAR1
+}
+
+async function fetchParquet(url, name, attempts = 3) {
+  let last = null;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const res = await fetch(url, { cache: i === 1 ? "default" : "reload" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (!looksLikeParquet(bytes)) {
+        throw new Error(`got ${bytes.length} bytes that are not a parquet file`);
+      }
+      return bytes;
+    } catch (e) {
+      last = e;
+      if (i < attempts) {
+        showLoader(`Retrying ${name}… (${i}/${attempts - 1})`);
+        await new Promise((r) => setTimeout(r, 400 * i));
+      }
+    }
+  }
+  throw new Error(`could not load ${name} — ${last && last.message}`);
+}
+
 async function initDuckDB() {
   showLoader("Booting DuckDB-WASM…");
   const bundles = duckdb.getJsDelivrBundles();
@@ -70,9 +111,10 @@ async function initDuckDB() {
   let loaded = 0;
   for (const t of TABLES) {
     showLoader(`Loading data… (${++loaded}/${TABLES.length})`);
-    const url = `${base}${t}.parquet`;
-    await db.registerFileURL(`${t}.parquet`, url, duckdb.DuckDBDataProtocol.HTTP, false);
-    await conn.query(`CREATE TABLE ${t} AS SELECT * FROM read_parquet('${t}.parquet')`);
+    const name = `${t}.parquet`;
+    const buf = await fetchParquet(`${base}${name}`, name);
+    await db.registerFileBuffer(name, buf);
+    await conn.query(`CREATE TABLE ${t} AS SELECT * FROM read_parquet('${name}')`);
   }
   const totalSQL = "SELECT " + TABLES.map((t) => `(SELECT count(*) FROM ${t})`).join(" + ") + " AS n";
   const r = await conn.query(totalSQL);
@@ -364,6 +406,21 @@ async function main() {
 
 main().catch((e) => {
   hideLoader();
-  document.body.insertAdjacentHTML("beforeend",
-    `<div style="position:fixed;bottom:1rem;left:1rem;right:1rem;background:#3b0d0d;color:#fca5a5;padding:1rem;border-radius:10px;font-family:monospace;font-size:13px">Init failed: ${e.message || e}</div>`);
+  const msg = String((e && e.message) || e);
+  // A Thrift error here means DuckDB was handed something that was not parquet.
+  // Say that in words, and say what to do about it.
+  const transport = /TProtocol|Invalid data|not a parquet|could not load/i.test(msg);
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div role="alert" style="position:fixed;bottom:1rem;left:1rem;right:1rem;background:#3b0d0d;
+      color:#fca5a5;padding:1rem 1.2rem;border-radius:10px;font:13px/1.6 ui-monospace,monospace;
+      max-width:56rem;margin-inline:auto">
+      <strong>Could not load the database.</strong><br>${msg}
+      ${transport ? "<br><br>This is almost always a half-finished download. A hard reload " +
+        "(Ctrl+Shift+R, or Cmd+Shift+R) clears the partial file and usually fixes it." : ""}
+      <br><br><button onclick="location.reload()" style="background:#fca5a5;color:#3b0d0d;
+        border:0;padding:.45rem 1rem;border-radius:6px;font:inherit;font-weight:700;
+        cursor:pointer">Reload</button>
+    </div>`
+  );
 });
